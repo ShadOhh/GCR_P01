@@ -26,6 +26,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.sounds.SoundEvents;
@@ -97,10 +98,16 @@ public class GunModifyContext {
     private static final float NODE_HIT = 10f;
     private static final float SLOT_HIT = 10f;
     private static final float ICON = 18f;
+    private static final int CELL = 18;
+    private static final int CHEVRON = 10;
 
     private enum DragMode { NONE, HOLD, RAIL }
 
     private final List<Callout> callouts = new ArrayList<>();
+    /** Slot-providing attachments whose extra slots are folded back into the triangle. */
+    private final Set<String> collapsedHosts = new HashSet<>();
+    private float pointerX;
+    private float pointerY;
     private final List<DragRect> dragRects = new ArrayList<>();
     private String hoveredDragId;
     private DragMode dragMode = DragMode.NONE;
@@ -379,11 +386,61 @@ public class GunModifyContext {
         return deltaX > 0 ? 1 : -1;
     }
 
+    /** Slot name, then the part in it, or Empty when the square is open. */
+    public void renderHoverTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        StripCell cell = calloutAt(mouseX, mouseY);
+        if (cell == null || cell.gap || cell.chevron) {
+            return;
+        }
+        Component text = hoverText(cell);
+        if (text == null) {
+            return;
+        }
+        graphics.renderTooltip(Minecraft.getInstance().font, text, mouseX, mouseY);
+    }
+
+    private Component hoverText(StripCell cell) {
+        Node node = cell.node;
+        SlotInstance slot = cell.slot != null ? cell.slot : (node == null ? null : node.getBelongsTo());
+        Component equipped = Component.translatable("screen.modify.empty");
+        if (node != null) {
+            IModular module = node.getModule();
+            if (module != null && module.getBindItem() != null) {
+                equipped = new ItemStack(module.getBindItem()).getHoverName();
+            }
+        }
+        if (slot == null) {
+            return equipped;
+        }
+        return Component.translatable("screen.modify.selected_installed", slotLabel(slot), equipped);
+    }
+
+    private static Component slotLabel(SlotInstance slot) {
+        String raw = slot.slotName().toLowerCase(Locale.ROOT);
+        StringBuilder pretty = new StringBuilder();
+        for (String part : raw.split("_")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (!pretty.isEmpty()) {
+                pretty.append(' ');
+            }
+            pretty.append(Character.toUpperCase(part.charAt(0)));
+            if (part.length() > 1) {
+                pretty.append(part.substring(1));
+            }
+        }
+        return Component.translatableWithFallback("slot." + raw, pretty.toString());
+    }
+
     public void renderComponents(GuiGraphics guiGraphics, int mouseX, int mouseY) {
-        hoveredDragId = hitDragRect(mouseX, mouseY);
-        renderCallouts(guiGraphics);
+        pointerX = mouseX;
+        pointerY = mouseY;
+        rebuildCallouts();
+        hoveredDragId = calloutAt(mouseX, mouseY) == null ? hitDragRect(mouseX, mouseY) : null;
         renderNodeIcons(guiGraphics);
         drawDragHighlight(guiGraphics);
+        renderCallouts(guiGraphics);
     }
 
     public void onTick() {
@@ -558,19 +615,6 @@ public class GunModifyContext {
                 markPoint(guiGraphics, pos.x, pos.y, hot, warn);
             }
         }
-
-        if (renderSlotIcon) {
-            for (Pair<SlotInstance, Vector3f> pair : slotScreenPos.values()) {
-                if (pair.getLeft().isHidden() || isSlotOccupied(pair.getLeft())) {
-                    continue;
-                }
-                Vector3f pos = pair.getValue();
-                if (pos == OUT_SCREEN) {
-                    continue;
-                }
-                markPoint(guiGraphics, pos.x, pos.y + 6, pair.getKey() == selectedSlot, false);
-            }
-        }
     }
 
     /**
@@ -738,10 +782,6 @@ public class GunModifyContext {
         return !(bounds.getLeft() && bounds.getRight());
     }
 
-    private boolean isHoveredCallout(Callout callout) {
-        return hoveredDragId != null && callout.key.equals("n:" + hoveredDragId);
-    }
-
     private void drawDragHighlight(GuiGraphics graphics) {
         String selectedId = selectedNode == null ? null : selectedNode.getID();
         for (DragRect rect : dragRects) {
@@ -857,17 +897,27 @@ public class GunModifyContext {
     public boolean beginPointer(float mouseX, float mouseY) {
         for (int i = callouts.size() - 1; i >= 0; i--) {
             Callout callout = callouts.get(i);
-            if (mouseX < callout.x - 3 || mouseX > callout.x + callout.w + 3
-                    || mouseY < callout.y - 3 || mouseY > callout.y + callout.h + 3) {
+            StripCell cell = cellAt(callout, mouseX, mouseY);
+            if (cell == null) {
                 continue;
             }
-            if (callout.renderNode != null) {
-                selectNode(callout.renderNode);
-            } else if (callout.slot != null) {
-                selectSlot(callout.slot);
+            if (cell.chevron) {
+                toggleHost(cell.ownerId);
+                return true;
             }
-            draggingKey = callout.key;
-            dragMode = callout.rail ? DragMode.RAIL : DragMode.HOLD;
+            if (cell.gap) {
+                return true;
+            }
+            if (cell.renderNode != null) {
+                selectNode(cell.renderNode);
+                dragMode = isRailNode(cell.node) ? DragMode.RAIL : DragMode.HOLD;
+            } else if (cell.slot != null) {
+                selectSlot(cell.slot);
+                dragMode = DragMode.HOLD;
+            } else {
+                return true;
+            }
+            draggingKey = cell.node != null ? "n:" + cell.node.getID() : callout.key;
             pressX = lastPointerX = mouseX;
             pressY = lastPointerY = mouseY;
             dragPassedThreshold = false;
@@ -875,6 +925,47 @@ public class GunModifyContext {
             return true;
         }
         return pressDragRect(mouseX, mouseY);
+    }
+
+    private void toggleHost(String ownerId) {
+        if (ownerId == null) {
+            return;
+        }
+        if (!collapsedHosts.add(ownerId)) {
+            collapsedHosts.remove(ownerId);
+        }
+        playDownSound(Minecraft.getInstance().getSoundManager());
+    }
+
+    private boolean hostOpen(String ownerId) {
+        return ownerId != null && !collapsedHosts.contains(ownerId);
+    }
+
+    private StripCell cellAt(Callout callout, float mouseX, float mouseY) {
+        if (callout.cells.isEmpty()) {
+            return null;
+        }
+        if (mouseY < callout.y - 3 || mouseY > callout.y + callout.h + 3) {
+            return null;
+        }
+        float local = mouseX - callout.x;
+        if (local < -3 || local > callout.w + 3) {
+            return null;
+        }
+        if (local < 0f) {
+            local = 0f;
+        }
+        if (local >= callout.w) {
+            local = callout.w - 0.001f;
+        }
+        float cursor = 0f;
+        for (StripCell cell : callout.cells) {
+            if (local < cursor + cell.width) {
+                return cell;
+            }
+            cursor += cell.width;
+        }
+        return callout.cells.get(callout.cells.size() - 1);
     }
 
     public boolean isPointerDragging() {
@@ -1009,47 +1100,136 @@ public class GunModifyContext {
         return node != null && !node.isFixedPosition() && node.getBelongsToSlot() instanceof IRail;
     }
 
+    private StripCell calloutAt(float mouseX, float mouseY) {
+        for (int i = callouts.size() - 1; i >= 0; i--) {
+            StripCell cell = cellAt(callouts.get(i), mouseX, mouseY);
+            if (cell != null) {
+                return cell;
+            }
+        }
+        return null;
+    }
+
     private void renderCallouts(GuiGraphics graphics) {
-        rebuildCallouts();
         for (Callout callout : callouts) {
-            float centerX = callout.x + callout.w * 0.5f;
-            float centerY = callout.y + callout.h * 0.5f;
-            float dx = callout.anchorX - centerX;
-            float dy = callout.anchorY - centerY;
-            float scaleX = dx == 0f ? Float.MAX_VALUE : (callout.w * 0.5f) / Math.abs(dx);
-            float scaleY = dy == 0f ? Float.MAX_VALUE : (callout.h * 0.5f) / Math.abs(dy);
-            float scale = Math.min(scaleX, scaleY);
-            boolean hot = callout.selected || isHoveredCallout(callout);
-            int line = callout.warn ? 0xCCE24B4B : (hot ? 0xA6F4F1EA : 0x66C8C2B6);
-            drawLeader(graphics, centerX + dx * scale, centerY + dy * scale, callout.anchorX, callout.anchorY, line);
+            drawCellLeaders(graphics, callout);
         }
         for (Callout callout : callouts) {
-            int left = Math.round(callout.x);
-            int top = Math.round(callout.y);
-            int size = Math.round(callout.w);
-            boolean hot = callout.selected || isHoveredCallout(callout);
-            int plate = callout.warn ? 0xF06A2420 : (hot ? 0xF0E7D7A8 : 0xF0E6E0D4);
-            int outline = callout.warn ? 0xFFE24B4B : (hot ? 0xFFF2D48A : 0xFF6E6A62);
-            graphics.fill(left, top, left + size, top + size, plate);
-            graphics.renderOutline(left, top, size, size, outline);
-            if (!callout.icon.isEmpty()) {
-                float scale = (size - 4f) / 16f;
-                graphics.pose().pushPose();
-                graphics.pose().translate(left + (size - 16f * scale) / 2f, top + (size - 16f * scale) / 2f, 200f);
-                graphics.pose().scale(scale, scale, 1f);
-                graphics.renderItem(callout.icon, 0, 0);
-                graphics.pose().popPose();
-            }
-            if (callout.warn) {
-                drawWarnBadge(graphics, left + size - 5, top - 2);
-            }
+            drawStrip(graphics, callout);
         }
+    }
+
+    /** The main attachment gets the line. Squares stacked on it do not. */
+    private void drawCellLeaders(GuiGraphics graphics, Callout callout) {
+        if (callout.cells.isEmpty()) {
+            return;
+        }
+        StripCell cell = callout.cells.get(0);
+        if (cell.gap || cell.chevron || Float.isNaN(cell.anchorX)) {
+            return;
+        }
+        float centerX = callout.x + cell.width * 0.5f;
+        float centerY = callout.y + callout.h * 0.5f;
+        float dx = cell.anchorX - centerX;
+        float dy = cell.anchorY - centerY;
+        float scaleX = dx == 0f ? Float.MAX_VALUE : (cell.width * 0.5f) / Math.abs(dx);
+        float scaleY = dy == 0f ? Float.MAX_VALUE : (callout.h * 0.5f) / Math.abs(dy);
+        float scale = Math.min(scaleX, scaleY);
+        int line = cell.warn ? 0xCCE24B4B : (cellHot(cell) ? 0xA6F4F1EA : 0x66C8C2B6);
+        drawLeader(graphics, centerX + dx * scale, centerY + dy * scale, cell.anchorX, cell.anchorY, line);
+    }
+
+    /** One bar. Slots the attachment opens stay in separate groups beside it. */
+    private void drawStrip(GuiGraphics graphics, Callout callout) {
+        if (callout.cells.isEmpty()) {
+            return;
+        }
+        int left = Math.round(callout.x);
+        int top = Math.round(callout.y);
+        int size = Math.round(callout.h);
+        int cursor = left;
+        int segStart = left;
+        for (StripCell cell : callout.cells) {
+            if (cell.gap) {
+                strokeSegment(graphics, segStart, cursor, top, size);
+                cursor += cell.width;
+                segStart = cursor;
+                continue;
+            }
+            boolean hot = cellHot(cell);
+            boolean over = pointerOver(cursor, top, cell.width, size);
+            int plate = cell.warn ? 0xF06A2420 : ((hot || over) ? 0xF0E7D7A8 : 0xF0E6E0D4);
+            graphics.fill(cursor, top, cursor + cell.width, top + size, plate);
+            cursor += cell.width;
+        }
+        strokeSegment(graphics, segStart, cursor, top, size);
+        cursor = left;
+        boolean afterGap = true;
+        for (StripCell cell : callout.cells) {
+            if (cell.gap) {
+                cursor += cell.width;
+                afterGap = true;
+                continue;
+            }
+            if (!afterGap) {
+                graphics.fill(cursor, top + 1, cursor + 1, top + size - 1, 0xFF6E6A62);
+            }
+            afterGap = false;
+            if (cell.chevron) {
+                boolean over = pointerOver(cursor, top, cell.width, size);
+                boolean open = hostOpen(cell.ownerId);
+                drawTriangle(graphics, cursor, top, cell.width, size, !open, over ? 0xFF2A261C : 0xFF4A463E);
+            } else {
+                drawItemIcon(graphics, cell.icon, cursor, top, size);
+            }
+            if (cell.warn) {
+                drawWarnBadge(graphics, cursor + cell.width - 6, top - 2);
+            }
+            if (cellHot(cell)) {
+                graphics.renderOutline(cursor, top, cell.width, size, cell.warn ? 0xFFE24B4B : 0xFFF2D48A);
+            }
+            cursor += cell.width;
+        }
+    }
+
+    private static void strokeSegment(GuiGraphics graphics, int start, int end, int top, int size) {
+        if (end <= start) {
+            return;
+        }
+        graphics.renderOutline(start, top, end - start, size, 0xFF6E6A62);
+    }
+
+    private boolean cellHot(StripCell cell) {
+        if (cell.chevron || (cell.node == null && cell.slot == null)) {
+            return false;
+        }
+        if (cell.node != null) {
+            if (cell.node == selectedNode) {
+                return true;
+            }
+            return hoveredDragId != null && hoveredDragId.equals(cell.node.getID());
+        }
+        return cell.slot == selectedSlot && selectedNode == null;
+    }
+
+    private boolean pointerOver(int x, int y, int w, int h) {
+        return pointerX >= x && pointerX < x + w && pointerY >= y && pointerY < y + h;
     }
 
     private void rebuildCallouts() {
         callouts.clear();
         int width = Minecraft.getInstance().getWindow().getGuiScaledWidth();
         int height = Minecraft.getInstance().getWindow().getGuiScaledHeight();
+        Map<Node, ModuleRenderNode> renderByNode = new HashMap<>();
+        renderNodeToNode.forEach((renderNode, node) -> renderByNode.put(node, renderNode));
+        Map<SlotInstance, Node> slotOwners = new HashMap<>();
+        if (nodeRoot != null) {
+            nodeRoot.dfs(node -> {
+                for (SlotInstance slot : node.getSlots()) {
+                    slotOwners.put(slot, node);
+                }
+            });
+        }
         List<CalloutDraft> drafts = new ArrayList<>();
         if (renderNodeIcon) {
             for (Pair<ModuleRenderNode, Vector3f> pair : renderNodeScreenPos.values()) {
@@ -1059,12 +1239,17 @@ public class GunModifyContext {
                 }
                 ModuleRenderNode renderNode = pair.getKey();
                 Node node = renderNodeToNode.get(renderNode);
-                if (node == null) {
+                if (node == null || consumedByVisibleHost(node, renderByNode)) {
                     continue;
                 }
-                drafts.add(new CalloutDraft("n:" + node.getID(), pos.x, pos.y, nodeIcon(node),
-                        isRailNode(node), renderNode == selectedRenderNode, renderNode, null,
-                        collisionRes.collidesWithNode(node.getID())));
+                if (hasOpenings(node)) {
+                    List<StripCell> cells = new ArrayList<>();
+                    appendHost(node, cells, renderByNode);
+                    drafts.add(new CalloutDraft("g:" + node.getID(), pos.x, pos.y, cells, cellWidth(cells)));
+                } else {
+                    drafts.add(new CalloutDraft("n:" + node.getID(), pos.x, pos.y,
+                            List.of(nodeCell(node, renderByNode)), CELL));
+                }
             }
         }
         if (renderSlotIcon) {
@@ -1073,12 +1258,16 @@ public class GunModifyContext {
                 if (slot.isHidden() || isSlotOccupied(slot)) {
                     continue;
                 }
+                Node owner = slotOwners.get(slot);
+                if (owner != null && owner != nodeRoot && hasOpenings(owner) && screenAnchor(owner, renderByNode) != null) {
+                    continue;
+                }
                 Vector3f pos = pair.getValue();
                 if (pos == OUT_SCREEN) {
                     continue;
                 }
-                drafts.add(new CalloutDraft("s:" + System.identityHashCode(slot), pos.x, pos.y + 6, ItemStack.EMPTY,
-                        false, slot == selectedSlot && selectedNode == null, null, slot, false));
+                drafts.add(new CalloutDraft("s:" + System.identityHashCode(slot), pos.x, pos.y + 6,
+                        List.of(slotCell(slot)), CELL));
             }
         }
         if (drafts.isEmpty()) {
@@ -1106,25 +1295,171 @@ public class GunModifyContext {
         for (CalloutDraft draft : drafts) {
             (draft.anchorY <= centerY ? above : below).add(draft);
         }
-        placeOnOval(above, true, centerX, centerY, radiusX, radiusY);
-        placeOnOval(below, false, centerX, centerY, radiusX, radiusY);
+        placeOnOval(above, true, centerX, centerY, radiusX, radiusY, width);
+        placeOnOval(below, false, centerX, centerY, radiusX, radiusY, width);
+    }
+
+    /**
+     * An attachment that itself has slots. The gun root is not one of these: its slots stay separate icons.
+     * Folded, the bar is the attachment plus a triangle. Open, the slots and parts it added sit in that same bar.
+     */
+    private boolean hasOpenings(Node host) {
+        if (host == null || host == nodeRoot) {
+            return false;
+        }
+        for (Map.Entry<SlotInstance, List<Node>> entry : host.getAllChildren().entrySet()) {
+            SlotInstance slot = entry.getKey();
+            List<Node> children = entry.getValue();
+            if (children != null && !children.isEmpty()) {
+                return true;
+            }
+            if (!slot.isHidden() && !isSlotOccupied(slot)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean consumedByVisibleHost(Node node, Map<Node, ModuleRenderNode> renderByNode) {
+        Node parent = node.getParent();
+        return parent != null && hasOpenings(parent) && screenAnchor(parent, renderByNode) != null;
+    }
+
+    private Vector3f screenAnchor(Node node, Map<Node, ModuleRenderNode> renderByNode) {
+        ModuleRenderNode renderNode = renderByNode.get(node);
+        if (renderNode == null) {
+            return null;
+        }
+        Pair<ModuleRenderNode, Vector3f> pair = renderNodeScreenPos.get(renderNode);
+        if (pair == null) {
+            return null;
+        }
+        Vector3f pos = pair.getValue();
+        return pos == OUT_SCREEN ? null : pos;
+    }
+
+    private void appendHost(Node host, List<StripCell> cells, Map<Node, ModuleRenderNode> renderByNode) {
+        cells.add(nodeCell(host, renderByNode));
+        if (hostOpen(host.getID())) {
+            boolean gap = false;
+            for (Map.Entry<SlotInstance, List<Node>> entry : host.getAllChildren().entrySet()) {
+                SlotInstance slot = entry.getKey();
+                List<Node> children = entry.getValue();
+                boolean hasChild = children != null && !children.isEmpty();
+                boolean showSlot = renderSlotIcon && !slot.isHidden() && !isSlotOccupied(slot);
+                if (!hasChild && !showSlot) {
+                    continue;
+                }
+                if (gap) {
+                    cells.add(gapCell());
+                }
+                gap = true;
+                if (showSlot) {
+                    cells.add(slotCell(slot));
+                }
+                if (!hasChild) {
+                    continue;
+                }
+                for (Node child : children) {
+                    if (hasOpenings(child)) {
+                        appendHost(child, cells, renderByNode);
+                    } else {
+                        cells.add(nodeCell(child, renderByNode));
+                    }
+                }
+            }
+        }
+        cells.add(chevronCell(host));
+    }
+
+    private StripCell nodeCell(Node node, Map<Node, ModuleRenderNode> renderByNode) {
+        Vector3f pos = screenAnchor(node, renderByNode);
+        float anchorX = pos == null ? Float.NaN : pos.x;
+        float anchorY = pos == null ? Float.NaN : pos.y;
+        return new StripCell(nodeIcon(node), collisionRes.collidesWithNode(node.getID()),
+                renderByNode.get(node), node, null, false, null, false, CELL, anchorX, anchorY);
+    }
+
+    private StripCell slotCell(SlotInstance slot) {
+        Vector3f pos = slotAnchor(slot);
+        float anchorX = pos == null ? Float.NaN : pos.x;
+        float anchorY = pos == null ? Float.NaN : pos.y + 6f;
+        return new StripCell(ItemStack.EMPTY, false, null, null, slot, false, null, false, CELL, anchorX, anchorY);
+    }
+
+    private Vector3f slotAnchor(SlotInstance slot) {
+        Pair<SlotInstance, Vector3f> pair = slotScreenPos.get(slot);
+        if (pair == null) {
+            return null;
+        }
+        Vector3f pos = pair.getValue();
+        return pos == OUT_SCREEN ? null : pos;
+    }
+
+    private static StripCell chevronCell(Node host) {
+        return new StripCell(ItemStack.EMPTY, false, null, null, null, true, host.getID(), false, CHEVRON, Float.NaN, Float.NaN);
+    }
+
+    private static StripCell gapCell() {
+        return new StripCell(ItemStack.EMPTY, false, null, null, null, false, null, true, 4, Float.NaN, Float.NaN);
+    }
+
+    private static float cellWidth(List<StripCell> cells) {
+        float width = 0f;
+        for (StripCell cell : cells) {
+            width += cell.width;
+        }
+        return width;
     }
 
     /** Evenly space icons along the top or bottom half of an oval around the weapon. */
-    private void placeOnOval(List<CalloutDraft> row, boolean above, float centerX, float centerY, float radiusX, float radiusY) {
+    private void placeOnOval(List<CalloutDraft> row, boolean above, float centerX, float centerY,
+                             float radiusX, float radiusY, int screenWidth) {
         if (row.isEmpty()) {
             return;
         }
         row.sort(Comparator.comparingDouble(draft -> draft.anchorX));
         int count = row.size();
+        int from = callouts.size();
         for (int i = 0; i < count; i++) {
             double along = (i + 0.5) / count;
             double theta = above ? Math.PI + along * Math.PI : Math.PI - along * Math.PI;
-            float x = centerX + radiusX * (float) Math.cos(theta) - ICON * 0.5f;
-            float y = centerY + radiusY * (float) Math.sin(theta) - ICON * 0.5f;
             CalloutDraft draft = row.get(i);
-            callouts.add(new Callout(draft.key, draft.anchorX, draft.anchorY, x, y, ICON, ICON, draft.icon,
-                    draft.rail, draft.selected, draft.renderNode, draft.slot, draft.warn));
+            float x = centerX + radiusX * (float) Math.cos(theta) - CELL * 0.5f;
+            float y = centerY + radiusY * (float) Math.sin(theta) - ICON * 0.5f;
+            callouts.add(new Callout(draft.key, draft.anchorX, draft.anchorY, x, y, draft.width, ICON, draft.cells));
+        }
+        separate(callouts.subList(from, callouts.size()), screenWidth);
+    }
+
+    /** Keep wide attachment bars from sitting on top of the next icon. */
+    private static void separate(List<Callout> row, int screenWidth) {
+        if (row.isEmpty()) {
+            return;
+        }
+        row.sort(Comparator.comparingDouble(callout -> callout.x));
+        float gap = 4f;
+        for (int i = 1; i < row.size(); i++) {
+            Callout prev = row.get(i - 1);
+            Callout cur = row.get(i);
+            float minX = prev.x + prev.w + gap;
+            if (cur.x < minX) {
+                cur.x = minX;
+            }
+        }
+        Callout last = row.get(row.size() - 1);
+        float overflow = last.x + last.w + 8f - screenWidth;
+        if (overflow > 0f) {
+            for (Callout callout : row) {
+                callout.x -= overflow;
+            }
+        }
+        float left = row.get(0).x;
+        if (left < 8f) {
+            float shift = 8f - left;
+            for (Callout callout : row) {
+                callout.x += shift;
+            }
         }
     }
 
@@ -1156,26 +1491,55 @@ public class GunModifyContext {
         graphics.fill(x + 3, y + 6, x + 4, y + 7, 0xFFFFFFFF);
     }
 
-    private record CalloutDraft(String key, float anchorX, float anchorY, ItemStack icon, boolean rail, boolean selected,
-                                ModuleRenderNode renderNode, SlotInstance slot, boolean warn) {}
+    private static void drawItemIcon(GuiGraphics graphics, ItemStack icon, int left, int top, int size) {
+        if (icon.isEmpty()) {
+            return;
+        }
+        float scale = (size - 4f) / 16f;
+        graphics.pose().pushPose();
+        graphics.pose().translate(left + (size - 16f * scale) / 2f, top + (size - 16f * scale) / 2f, 200f);
+        graphics.pose().scale(scale, scale, 1f);
+        graphics.renderItem(icon, 0, 0);
+        graphics.pose().popPose();
+    }
+
+    /** Right-pointing while the bar is folded, left-pointing while the extra slots are open. */
+    private static void drawTriangle(GuiGraphics graphics, int x, int y, int w, int h, boolean pointRight, int color) {
+        int left = x + 2;
+        int right = x + w - 2;
+        int top = y + 4;
+        int bottom = y + h - 4;
+        int height = bottom - top;
+        int spanMax = right - left;
+        if (height <= 1 || spanMax <= 1) {
+            return;
+        }
+        float mid = (height - 1) * 0.5f;
+        for (int i = 0; i < height; i++) {
+            float dist = Math.abs(i - mid) / mid;
+            int span = Math.max(1, Math.round(spanMax * (1f - dist)));
+            int x0 = pointRight ? left : right - span;
+            graphics.fill(x0, top + i, x0 + span, top + i + 1, color);
+        }
+    }
+
+    private record CalloutDraft(String key, float anchorX, float anchorY, List<StripCell> cells, float width) {}
+
+    private record StripCell(ItemStack icon, boolean warn, ModuleRenderNode renderNode, Node node,
+                             SlotInstance slot, boolean chevron, String ownerId, boolean gap, int width,
+                             float anchorX, float anchorY) {}
 
     private static final class Callout {
         private final String key;
         private final float anchorX;
         private final float anchorY;
-        private final float x;
-        private final float y;
+        private float x;
+        private float y;
         private final float w;
         private final float h;
-        private final ItemStack icon;
-        private final boolean rail;
-        private final boolean selected;
-        private final boolean warn;
-        private final ModuleRenderNode renderNode;
-        private final SlotInstance slot;
+        private final List<StripCell> cells;
 
-        private Callout(String key, float anchorX, float anchorY, float x, float y, float w, float h, ItemStack icon,
-                         boolean rail, boolean selected, ModuleRenderNode renderNode, SlotInstance slot, boolean warn) {
+        private Callout(String key, float anchorX, float anchorY, float x, float y, float w, float h, List<StripCell> cells) {
             this.key = key;
             this.anchorX = anchorX;
             this.anchorY = anchorY;
@@ -1183,12 +1547,7 @@ public class GunModifyContext {
             this.y = y;
             this.w = w;
             this.h = h;
-            this.icon = icon;
-            this.rail = rail;
-            this.selected = selected;
-            this.warn = warn;
-            this.renderNode = renderNode;
-            this.slot = slot;
+            this.cells = cells;
         }
     }
 
