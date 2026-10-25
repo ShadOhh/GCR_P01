@@ -3,6 +3,7 @@ package com.sheridan.gcr;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.logging.LogUtils;
 import com.sheridan.gcr.blocks.VendingMachine;
+import com.sheridan.gcr.client.BarrelAim;
 import com.sheridan.gcr.client.GunEffectManager;
 import com.sheridan.gcr.client.KeyBinds;
 import com.sheridan.gcr.client.events.ClientEvents;
@@ -32,6 +33,7 @@ import com.sheridan.gcr.modularSys.IModular;
 import com.sheridan.gcr.modularSys.ISlotProviderModular;
 import com.sheridan.gcr.modularSys.ModuleRegister;
 import com.sheridan.gcr.modularSys.modules.IVoxelHandlerModule;
+import com.sheridan.gcr.modularSys.fire.FireMode;
 import com.sheridan.gcr.modularSys.modules.guns.Gun;
 import com.sheridan.gcr.modularSys.modules.guns.ak.AK;
 import com.sheridan.gcr.modularSys.modules.guns.ar.AR;
@@ -698,6 +700,8 @@ public class GCR {
             NeoForge.EVENT_BUS.register(IrisGunPostRenderer.class);
             NeoForge.EVENT_BUS.register(GunEffectManager.class);
             NeoForge.EVENT_BUS.register(LaserEffectRenderer.class);
+            FireMode.setBeforeSend(BarrelAim::apply);
+            BarrelCrosshairRenderer.init();
             Client.onClientSetup(event);
 
             Collection<DeferredHolder<Item, ? extends Item>> entries = ITEMS.getEntries();
