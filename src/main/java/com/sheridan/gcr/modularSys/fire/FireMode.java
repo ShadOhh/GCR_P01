@@ -16,8 +16,17 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.function.Consumer;
+
 public abstract class FireMode<T extends IGun> implements IFireMode<T>{
     private final String name;
+    /** Client fills the muzzle aim. The server never calls this. */
+    private static Consumer<GunFirePacket> beforeSend;
+
+    @OnlyIn(Dist.CLIENT)
+    public static void setBeforeSend(Consumer<GunFirePacket> hook) {
+        beforeSend = hook;
+    }
 
     public FireMode(String name) {
         this.name = name;
@@ -73,7 +82,11 @@ public abstract class FireMode<T extends IGun> implements IFireMode<T>{
             gunKickPitch = recoilUpdater.getGunKickPitch();
             gunKickYaw = recoilUpdater.getGunKickYaw();
         }
-        PacketDistributor.sendToServer(new GunFirePacket(shootId, gunId, stuck, gunKickPitch, gunKickYaw));
+        GunFirePacket packet = new GunFirePacket(shootId, gunId, stuck, gunKickPitch, gunKickYaw);
+        if (beforeSend != null) {
+            beforeSend.accept(packet);
+        }
+        PacketDistributor.sendToServer(packet);
     }
 
 }
