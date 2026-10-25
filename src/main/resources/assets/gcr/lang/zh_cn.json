@@ -53,6 +53,7 @@
   "screen.modify.page": "%s / %s",
   "screen.modify.page_empty": "没有匹配的配件",
   "screen.modify.selected_installed": "%s - %s",
+  "screen.modify.empty": "空",
   "screen.modify.inspect_line_1": "拖拽旋转，右键拖拽移动。",
   "screen.modify.inspect_line_2": "滚轮缩放，Enter 重置，Esc 退出。",
 

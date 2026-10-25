@@ -53,6 +53,7 @@
   "screen.modify.page": "%s / %s",
   "screen.modify.page_empty": "No matches",
   "screen.modify.selected_installed": "%s - %s",
+  "screen.modify.empty": "Empty",
   "screen.modify.inspect_line_1": "Drag to rotate. Right-drag to move.",
   "screen.modify.inspect_line_2": "Scroll to zoom. Enter to reset. Esc to exit.",
 

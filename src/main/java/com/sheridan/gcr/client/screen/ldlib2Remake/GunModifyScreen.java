@@ -282,6 +282,9 @@ public class GunModifyScreen extends Screen {
         }
         renderInspectionOverlay(guiGraphics);
         RenderSystem.disableBlend();
+        if (context != null && !inspectionMode) {
+            context.renderHoverTooltip(guiGraphics, mouseX, mouseY);
+        }
     }
 
     private void renderGunModel() {
