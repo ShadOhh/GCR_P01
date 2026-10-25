@@ -165,7 +165,7 @@ public class GunPoseHandler {
             poseStack.mulPose(rotQuat);
             poseStack.translate(
                     Mth.lerp(aimingProgress, fpTrans[0], pos[0]),
-                    Mth.lerp(aimingProgress * aimingProgress, fpTrans[1], pos[1]),
+                    Mth.lerp(aimingProgress, fpTrans[1], pos[1]),
                     Mth.lerp(aimingProgress, fpTrans[2], pos[2]));
 
             poseStack.scale(fpTrans[6], fpTrans[7], fpTrans[8]);

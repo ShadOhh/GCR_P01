@@ -45,6 +45,10 @@ public class ClientTestingResources {
 
     public static void init(FMLClientSetupEvent event) {
         // ==================== 1. 动画整合与批量注册 ====================
+        ModelRegistrationManager.loadAndRegisterAnimations(
+                "model_assets/animation/aim.animation.json",
+                Map.of("aim", "aim")
+        );
         // 主武器动画
         ModelRegistrationManager.loadAndRegisterGunAnimations(
                 "model_assets/animation/m4a1_main.animation.json",
@@ -213,6 +217,7 @@ public class ClientTestingResources {
                     ), viewer);
 
                     IAnimationController<?> controller = new ARMainController(c -> c.registerAnimations(
+                            "aim", "gcr:aim",
                             "check_mag", "gcr:m4a1_check_mag",
                             "reload_grenade", "gcr:m4a1_reload_grenade_m203",
                             "check_grenade", "gcr:m4a1_check_grenade_m203",
@@ -250,6 +255,7 @@ public class ClientTestingResources {
                     ), viewer);
 
                     IAnimationController<?> controller = new ARMainController(c -> c.registerAnimations(
+                            "aim", "gcr:aim",
                             "check_mag", "gcr:m4a1_check_mag",
                             //"reload_grenade", "gcr:m4a1_reload_grenade_m203",
                             //"check_grenade", "gcr:m4a1_check_grenade_m203",
@@ -286,6 +292,7 @@ public class ClientTestingResources {
                     ), viewer);
 
                     IAnimationController<?> controller = new ARMainController(c -> c.registerAnimations(
+                            "aim", "gcr:aim",
                             "check_mag", "gcr:mcx_spear_check_mag",
                             ARFullAuto.FULL_AUTO.getName(), "gcr:m4a1_to_auto",
                             ARSemi.SEMI.getName(), "gcr:m4a1_to_semi",
@@ -326,6 +333,7 @@ public class ClientTestingResources {
                     model.setHeatMapTexPath(GCR.RL("model_assets/heatmap/ak74m.png"));
 
                     IAnimationController<?> controller = new AKController(c -> c.registerAnimations(
+                            "aim", "gcr:aim",
                             "shoot", "gcr:ak74m_shoot",
                             "shoot_last", "gcr:ak74m_shoot_last",
                             "shoot_stuck", "gcr:ak74m_shoot_stuck",
@@ -368,6 +376,7 @@ public class ClientTestingResources {
                     model.setHeatMapTexPath(GCR.RL("model_assets/heatmap/akmn.png"));
 
                     IAnimationController<?> controller = new AKController(c -> c.registerAnimations(
+                            "aim", "gcr:aim",
                             "shoot", "gcr:ak74m_shoot",
                             "shoot_last", "gcr:ak74m_shoot_last",
                             "shoot_stuck", "gcr:ak74m_shoot_stuck",
