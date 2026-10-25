@@ -270,7 +270,6 @@ Structural issues:
 
 - The Gradle wrapper jar is gitignored; a fresh clone cannot run `./gradlew`.
 - `ModuleRegister` has an unused `finalizeRegister()`; registration is not actually frozen.
-- The `Config` options are template leftovers and are read by nothing; there is no client config.
 - `SyncGunStatusPacket` copies every client-sent key into node states without a whitelist.
 - `PlaySoundPacket` lets the client name a sound and position without validation.
 - `SightViewRenderer` is a stub; `Client.handleWeaponBobbing` and `ModuleRenderContext.bufferCache` are
