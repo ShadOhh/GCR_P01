@@ -1,6 +1,8 @@
 package com.sheridan.gcr.client.render.fx;
 
 import com.sheridan.gcr.Client;
+import com.sheridan.gcr.ClientConfig;
+import com.sheridan.gcr.ServerConfig;
 import com.sheridan.gcr.client.BarrelAim;
 import com.sheridan.gcr.client.WeaponStatus;
 import com.sheridan.gcr.client.render.delayed.Stage;
@@ -102,6 +104,10 @@ public final class BarrelCrosshairRenderer {
     }
 
     private static boolean shouldDraw() {
+        // Server false hides the mark for everyone. Server true defers to the client file.
+        if (!ServerConfig.allowsCrosshair() || !ClientConfig.showCrosshair()) {
+            return false;
+        }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.screen != null || mc.options.hideGui) {
             return false;
