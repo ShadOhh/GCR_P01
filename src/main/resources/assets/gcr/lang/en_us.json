@@ -48,7 +48,7 @@
   "screen.modify.catalog_title": "Attachments",
   "screen.modify.hint.select": "Click a highlighted slot or an installed part. Right-drag empty space to rotate. Ctrl+right-drag to pan.",
   "screen.modify.hint.install": "Click an attachment to install it.",
-  "screen.modify.hint.replace": "Select a replacement, then press Replace.",
+  "screen.modify.hint.replace": "Click an attachment to replace the selected part.",
   "screen.modify.count_hint": "The number is how many you can install.",
   "screen.modify.page": "%s / %s",
   "screen.modify.page_empty": "No matches",

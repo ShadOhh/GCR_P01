@@ -48,7 +48,7 @@
   "screen.modify.catalog_title": "配件",
   "screen.modify.hint.select": "点击高亮槽位或已安装的配件。在空白处右键拖拽可旋转。按住 Ctrl 右键拖拽可平移。",
   "screen.modify.hint.install": "点击一个配件即可安装。",
-  "screen.modify.hint.replace": "先选中要换上的配件，再按替换。",
+  "screen.modify.hint.replace": "点击配件即可替换当前选中的部件。",
   "screen.modify.count_hint": "数字是当前可以安装的数量。",
   "screen.modify.page": "%s / %s",
   "screen.modify.page_empty": "没有匹配的配件",

@@ -10,7 +10,6 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexSorting;
 import com.sheridan.gcr.Client;
-import com.sheridan.gcr.client.BarrelAim;
 import com.sheridan.gcr.client.DrawHolsterHandler;
 import com.sheridan.gcr.client.GunEffect;
 import com.sheridan.gcr.client.GunEffectManager;
@@ -107,7 +106,6 @@ public class DefaultGunRenderer implements IGunRenderer {
         if (hideFPRender || IrisCompat.isRenderingShadowPass()) {
             return;
         }
-        BarrelAim.beginCaptureFrame();
         String identityId = gun.getIdentityID(itemStack);
         int modifyId = gun.getModifyID(itemStack);
         boolean doUpdateCache = modifyId != lastFPModifyID || !Objects.equals(identityId, lastFPIdentityID);
@@ -178,9 +176,6 @@ public class DefaultGunRenderer implements IGunRenderer {
         String usingSightID = cachedFPContext.gun.getUsingSightID(cachedFPContext.itemStack);
         if (!Objects.equals(lastUsingSightID, usingSightID)) {
             GunPoseHandler.INSTANCE.calculateSightPose(usingSightID, cachedFPContext, () -> renderFirstPerson(cachedFPContext));
-            if (Client.WEAPON_STATUS.isAiming()) {
-                dispatchAnimationEvent(EventType.AIM);
-            }
         }
         lastUsingSightID = usingSightID;
 
