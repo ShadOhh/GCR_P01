@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexSorting;
 import com.sheridan.gcr.Client;
+import com.sheridan.gcr.client.BarrelAim;
 import com.sheridan.gcr.client.DrawHolsterHandler;
 import com.sheridan.gcr.client.GunEffect;
 import com.sheridan.gcr.client.GunEffectManager;
@@ -100,6 +101,7 @@ public class DefaultGunRenderer implements IGunRenderer {
         if (hideFPRender || IrisCompat.isRenderingShadowPass()) {
             return;
         }
+        BarrelAim.beginCaptureFrame();
         String identityId = gun.getIdentityID(itemStack);
         int modifyId = gun.getModifyID(itemStack);
         boolean doUpdateCache = modifyId != lastFPModifyID || !Objects.equals(identityId, lastFPIdentityID);
