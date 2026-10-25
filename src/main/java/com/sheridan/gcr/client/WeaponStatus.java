@@ -3,6 +3,7 @@ package com.sheridan.gcr.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.sheridan.gcr.Client;
 import com.sheridan.gcr.GCR;
+import com.sheridan.gcr.client.model.modular.animation.eventSys.EventType;
 import com.sheridan.gcr.client.model.modular.IModularModel;
 import com.sheridan.gcr.client.model.modular.IScopeModel;
 import com.sheridan.gcr.client.model.modular.ModuleModelRegister;
@@ -82,6 +83,7 @@ public class WeaponStatus {
      * <p>由 {@link #refreshAimingSpeed()} 计算，{@link #handleAds} 每 tick 用它累加进度。</p>
      */
     public float aimingSpeed;
+    private float aimClock;
     /**
      * 不含瞄具倍率的基础瞄准速度。
      *
@@ -96,6 +98,7 @@ public class WeaponStatus {
      * 它与侧瞄（{@link ISight#ON_SIDE_POSITION}）的 0.75/0.6 进出速度因子是两回事，两者相乘。</p>
      */
     private float sightAdsSpeedModifier = 1f;
+    private boolean wasAiming;
 
     private Node activeSight = null;
     private final Object2ObjectOpenHashMap<String, Node> IDToNodes = new Object2ObjectOpenHashMap<>();
@@ -239,20 +242,23 @@ public class WeaponStatus {
             Client.RIGHT_BUTTON_PRESSED.set(false);
         }
         aimingProgressLast = aimingProgress;
+        float step = aimingSpeed;
         if (Client.RIGHT_BUTTON_PRESSED.get()) {
-            if (aimingProgress < 1) {
-                aimingProgress = Math.min(1, aimingProgress + aimingSpeed * cantedAdsIncSpeedFactor);
-            }
+            aimClock = Math.min(1f, aimClock + step * cantedAdsIncSpeedFactor);
             float sprintingProgress = SprintingHandler.INSTANCE.getSprintingProgress();
             float sprinting = 1 - sprintingProgress * sprintingProgress;
-            float r1 = 1.001f - aimingProgress;
+            float r1 = 1.001f - aimClock;
             float r2 = 1.001f - sprinting;
-            aimingProgress = (aimingProgress * r1 + sprinting * r2) / (r1 + r2);
+            aimingProgress = (aimClock * r1 + sprinting * r2) / (r1 + r2);
             isAiming = true;
         } else {
-            float exitSpeed = Math.max(0.3f, aimingSpeed);
-            aimingProgress = Math.max(0, aimingProgress - exitSpeed * cantedAdsDecSpeedFactor);
+            aimClock = Math.max(0f, aimClock - step * cantedAdsDecSpeedFactor);
+            aimingProgress = aimClock;
             isAiming = false;
+        }
+        if (isAiming != wasAiming) {
+            wasAiming = isAiming;
+            Client.getGunRenderer().dispatchAnimationEvent(EventType.AIM);
         }
         if (localPlayer == null) {
             return;
